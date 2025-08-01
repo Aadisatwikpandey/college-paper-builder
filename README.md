@@ -26,7 +26,7 @@ A web application that allows you to upload VTU (Visvesvaraya Technological Univ
 
 1. **Clone or download the project**:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/Aadisatwikpandey/college-paper-builder
    cd vtu-question-paper-builder
    ```
 
