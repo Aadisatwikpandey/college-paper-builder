@@ -231,6 +231,15 @@ export class HTMLPdfGenerator {
             font-size: 11px;
         }
         
+        .subq-col {
+            width: 30px;
+            text-align: center;
+            font-weight: bold;
+            vertical-align: middle;
+            font-size: 11px;
+            padding: 6px 4px;
+        }
+        
         .question-col {
             width: auto;
             padding: 6px 12px;
@@ -320,6 +329,7 @@ export class HTMLPdfGenerator {
         <thead>
             <tr>
                 <th class="qno-col">Q.No.</th>
+                <th class="subq-col"></th>
                 <th class="question-col">Questions</th>
                 <th class="marks-col">Marks</th>
             </tr>
@@ -342,7 +352,7 @@ export class HTMLPdfGenerator {
       // Module header
       rows += `
         <tr class="module-header">
-            <td colspan="3">${module.name}</td>
+            <td colspan="4">${module.name}</td>
         </tr>
       `;
       
@@ -385,9 +395,9 @@ export class HTMLPdfGenerator {
           rows += `
             <tr class="question-row">
                 ${subIndex === 0 ? `<td class="qno-col" rowspan="${sortedQuestions.length}">Q${qNum}</td>` : ''}
+                <td class="subq-col">${subPart}</td>
                 <td class="question-col">
                     <div class="question-content">
-                        <span class="sub-question">${subPart}</span>
                         <span class="question-text">${questionText}</span>
                     </div>
                 </td>
@@ -400,7 +410,7 @@ export class HTMLPdfGenerator {
         if (groupIndex < sortedQGroups.length - 1) {
           rows += `
             <tr class="or-row">
-                <td colspan="3"><strong>OR</strong></td>
+                <td colspan="4"><strong>OR</strong></td>
             </tr>
           `;
         }
