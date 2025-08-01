@@ -9,39 +9,46 @@ import { PdfProcessor } from '@/utils/pdf-processor';
 export default function Home() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [originalPdf, setOriginalPdf] = useState<Uint8Array | null>(null);
+  const [originalText, setOriginalText] = useState<string>('');
   const [currentStep, setCurrentStep] = useState<'upload' | 'select'>('upload');
 
-  const handlePdfProcessed = (processedQuestions: Question[], pdfData: Uint8Array) => {
+  const handlePdfProcessed = (processedQuestions: Question[], pdfData: Uint8Array, text: string) => {
     setQuestions(processedQuestions);
-    // Store Uint8Array directly - no conversion needed
     setOriginalPdf(pdfData);
+    setOriginalText(text);
     setCurrentStep('select');
   };
 
   const handleGeneratePdf = async (selectedQuestions: { [questionId: string]: string }) => {
-    if (!originalPdf) return;
+    if (!originalText) return;
 
     try {
-      const modifiedPdfBytes = await PdfProcessor.createModifiedPdf(originalPdf, selectedQuestions);
+      console.log('Generating VTU question paper with HTML template...');
+      console.log('Selected questions:', Object.keys(selectedQuestions));
       
-      const blob = new Blob([modifiedPdfBytes], { type: 'application/pdf' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'modified-question-paper.pdf';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      // Create the VTU question paper structure
+      const { html, vtuStructure } = await PdfProcessor.createVTUQuestionPaper(originalText, questions, selectedQuestions);
+      
+      console.log('VTU structure:', vtuStructure);
+      
+      // Download HTML file that can be printed to PDF using Cmd+P
+      PdfProcessor.downloadVTUQuestionPaper(html, 'vtu-question-paper-print.html');
+      
+      console.log('VTU question paper HTML generated and downloaded successfully');
+      
+      // Show user instructions
+      alert('Question paper generated! The HTML file will download and open in a new tab. Use Cmd+P (Mac) or Ctrl+P (Windows) and select "Save as PDF" to create your PDF file.');
+      
     } catch (error) {
-      console.error('Error generating PDF:', error);
-      alert('Failed to generate PDF. Please try again.');
+      console.error('Error generating VTU question paper:', error);
+      alert('Failed to generate question paper. Please try again.');
     }
   };
 
   const handleReset = () => {
     setQuestions([]);
     setOriginalPdf(null);
+    setOriginalText('');
     setCurrentStep('upload');
   };
 

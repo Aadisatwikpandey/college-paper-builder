@@ -7,7 +7,7 @@ import { PdfProcessor } from '@/utils/pdf-processor';
 import { Question } from '@/types/question-paper';
 
 interface PdfUploadProps {
-  onPdfProcessed: (questions: Question[], originalPdf: Uint8Array) => void;
+  onPdfProcessed: (questions: Question[], originalPdf: Uint8Array, originalText: string) => void;
 }
 
 export default function PdfUpload({ onPdfProcessed }: PdfUploadProps) {
@@ -34,12 +34,12 @@ export default function PdfUpload({ onPdfProcessed }: PdfUploadProps) {
       const pdfData = new Uint8Array(arrayBuffer);
       console.log('Converted to Uint8Array, size:', pdfData.length);
       
-      console.log('Extracting text from PDF...');
-      const text = await PdfProcessor.extractTextFromPdf(clonedArrayBuffer);
-      console.log('Text extraction complete, length:', text.length);
+      console.log('Extracting text with positions from PDF...');
+      const { text, textItems } = await PdfProcessor.extractTextWithPositions(clonedArrayBuffer);
+      console.log('Text extraction complete, length:', text.length, 'textItems:', textItems.length);
       
-      console.log('Extracting questions...');
-      const questions = PdfProcessor.extractQuestions(text);
+      console.log('Extracting questions with position data...');
+      const questions = PdfProcessor.extractQuestions(text, textItems);
       console.log('Found questions:', questions.length);
       
       // Generate alternatives for each question
@@ -49,8 +49,8 @@ export default function PdfUpload({ onPdfProcessed }: PdfUploadProps) {
       }));
       
       console.log('Processing complete, calling onPdfProcessed...');
-      // Pass the Uint8Array directly
-      onPdfProcessed(questionsWithAlternatives, pdfData);
+      // Pass the Uint8Array directly along with the original text
+      onPdfProcessed(questionsWithAlternatives, pdfData, text);
     } catch (err) {
       console.error('PDF processing error:', err);
       const errorMsg = err instanceof Error ? err.message : 'Failed to process PDF';

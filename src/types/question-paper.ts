@@ -7,6 +7,7 @@ export interface Question {
     y: number;
     width: number;
     height: number;
+    pageNum?: number;
   };
   alternatives: string[];
 }
