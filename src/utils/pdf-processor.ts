@@ -173,150 +173,366 @@ export class PdfProcessor {
       });
     }
     
-    // Set end positions for each Q section
+    // Set end positions for each Q section with better boundary detection
     for (let i = 0; i < qNumbers.length - 1; i++) {
-      qNumbers[i].endPos = qNumbers[i + 1].startPos;
+      // Find the actual end of this Q section by looking for content that belongs to the next Q
+      const nextQStart = qNumbers[i + 1].startPos;
+      const currentQEnd = this.findQSectionEnd(text, qNumbers[i].startPos, nextQStart, qNumbers[i].number);
+      qNumbers[i].endPos = Math.min(currentQEnd, nextQStart);
     }
     
     console.log(`Found ${qNumbers.length} Q sections:`, qNumbers.map(q => `Q${q.number}`));
     
-    // Now find sub-questions within each Q section
-    const subQuestionPattern = /([a-c])\s+(.*?)(?=\s+(\d+))/gi;
+    // Multi-pass extraction for better accuracy
+    console.log('\n=== STARTING MULTI-PASS EXTRACTION ===');
     
     qNumbers.forEach(qInfo => {
       const qSection = text.substring(qInfo.startPos, qInfo.endPos);
       console.log(`\nProcessing Q${qInfo.number} section (${qSection.length} chars)...`);
+      console.log(`Raw section text: "${qSection.substring(0, 200)}..."`);
       
-      subQuestionPattern.lastIndex = 0; // Reset regex
+      // Count expected sub-questions by looking for a, b, c patterns
+      const expectedCount = this.countExpectedSubQuestions(qSection);
+      console.log(`Expected ${expectedCount} sub-questions for Q${qInfo.number}`);
+      
+      // PASS 1: Try to find clear, well-separated sub-questions
+      const pass1Questions = this.extractWithStrictPattern(qSection, qInfo.number);
+      console.log(`Pass 1 found ${pass1Questions.length} questions for Q${qInfo.number} (expected ${expectedCount})`);
+      
+      // PASS 2: If Pass 1 didn't find expected number of questions, try alternative patterns
+      let finalQuestions = pass1Questions;
+      if (pass1Questions.length < expectedCount) {
+        console.log(`Pass 1 insufficient (${pass1Questions.length}/${expectedCount}), trying Pass 2 for Q${qInfo.number}...`);
+        const pass2Questions = this.extractWithFlexiblePattern(qSection, qInfo.number);
+        console.log(`Pass 2 found ${pass2Questions.length} questions for Q${qInfo.number}`);
+        
+        if (pass2Questions.length > pass1Questions.length) {
+          finalQuestions = pass2Questions;
+        }
+      }
+      
+      // PASS 3: Ensure proper sequential sub-parts (a, b, c)
+      const sequentialQuestions = this.ensureSequentialSubParts(finalQuestions, qInfo.number, expectedCount);
+      console.log(`Pass 3 sequential correction: ${sequentialQuestions.length} questions for Q${qInfo.number}`);
+      
+      // Add position information and push to main questions array
+      sequentialQuestions.forEach(q => {
+        // Find position information if textItems are provided
+        let position = { x: 0, y: 0, width: 0, height: 0, pageNum: 0 };
+        if (textItems) {
+          const foundItem = textItems.find(item => 
+            item.str.toLowerCase().includes(q.text.substring(0, 20).toLowerCase()) ||
+            (item.str.trim() === q.subPart && item.x > 500 && item.x < 650)
+          );
+          if (foundItem) {
+            position = {
+              x: foundItem.x,
+              y: foundItem.y,
+              width: 400,
+              height: 80,
+              pageNum: foundItem.pageNum
+            };
+          }
+        }
+        
+        questions.push({
+          id: q.id,
+          text: q.text,
+          marks: q.marks,
+          position,
+          alternatives: []
+        });
+        
+        console.log(`  -> ✓ FINAL: ${q.id} - ${q.text.substring(0, 60)}... (${q.marks} marks)`);
+      });
+    });
+
+    console.log(`Multi-pass extraction complete. Found ${questions.length} questions total.`);
+    return questions;
+  }
+
+  private static extractWithStrictPattern(qSection: string, qNumber: number): Array<{
+    id: string;
+    text: string;
+    marks: number;
+    subPart: string;
+  }> {
+    const questions: Array<{ id: string; text: string; marks: number; subPart: string }> = [];
+    
+    // Try multiple regex patterns to catch different formats
+    const patterns = [
+      // Pattern 1: Standard format with clear boundaries
+      /\b([a-c])\s+(.*?)(?=\s+(\d+)\s*(?:\n|$|marks?|\b[a-c]\s+|\d+\s*(?:\n|$)))/gi,
+      
+      // Pattern 2: With parentheses or dots
+      /\b([a-c])[\.\)\s]\s*(.*?)(?=\s+(\d+)\s*(?:\n|$|marks?|\b[a-c][\.\)\s]))/gi,
+      
+      // Pattern 3: More flexible ending
+      /\b([a-c])\s+(.*?)(\d+)(?=\s*(?:\n|$|\b[a-c]\s+))/gi
+    ];
+    
+    patterns.forEach((pattern, patternIndex) => {
       let match;
+      pattern.lastIndex = 0;
       
-      while ((match = subQuestionPattern.exec(qSection)) !== null) {
+      while ((match = pattern.exec(qSection)) !== null) {
         const subPart = match[1].toLowerCase();
         const questionText = match[2]?.trim();
         const marks = parseInt(match[3]) || 8;
         
-        console.log(`Raw match: Q${qInfo.number}${subPart} - "${questionText?.substring(0, 50)}..." - ${marks} marks`);
-        console.log(`  Match details: subPart="${subPart}", questionText length=${questionText?.length}`);
-        
-        // Skip if marks are too high (likely headers) or too low
-        if (marks > 10 || marks < 2) {
-          console.log(`  -> Skipped: Invalid marks (${marks})`);
+        // Check if we already have this sub-part (avoid duplicates)
+        const existingQuestion = questions.find(q => q.subPart === subPart);
+        if (existingQuestion) {
           continue;
         }
         
-        // Skip header-like content
-        const isHeader = headerPatterns.some(pattern => pattern.test(questionText));
-        if (isHeader) {
-          console.log(`  -> Skipped: Header detected`);
-          continue;
-        }
-        
-        // Only process if it looks like a valid question
-        if (questionText && questionText.length > 20 && questionText.length < 500) {
-          // Clean up the question text - handle multiline content better
-          const cleanedText = questionText
-            .replace(/\s+/g, ' ')
-            .replace(/^\s*[a-cA-C]\s+/, '') // Remove leading sub-part letter if duplicated
-            .replace(/\n+/g, ' ') // Replace newlines with spaces
-            .trim();
-          
-          // Skip if the text is too short or contains mostly non-alphabetic characters
-          if (cleanedText.length < 15 || !/[a-zA-Z]/.test(cleanedText)) {
-            console.log(`  -> Skipped: Text too short or non-alphabetic`);
-            continue;
-          }
-          
-          // Skip if it looks like a table header or formatting
-          if (/^\d+$/.test(cleanedText) || /^[a-cA-C]$/.test(cleanedText)) {
-            console.log(`  -> Skipped: Looks like formatting`);
-            continue;
-          }
-          
-          // Find position information if textItems are provided
-          let position = { x: 0, y: 0, width: 0, height: 0, pageNum: 0 };
-          if (textItems) {
-            // Better position detection strategy
-            let foundItem = null;
-            
-            // Strategy 1: Look for the sub-question part in a table cell context
-            const subPartInCell = textItems.find(item => 
-              item.str.trim() === subPart && // Exact match for sub-part
-              item.x > 500 && item.x < 650 // Likely in the question column based on the table structure
-            );
-            
-            if (subPartInCell) {
-              foundItem = subPartInCell;
-              console.log(`  -> Found sub-part "${subPart}" at x=${foundItem.x}, y=${foundItem.y}`);
-            } else {
-              // Strategy 2: Look for the first significant words of the question text
-              const significantWords = cleanedText
-                .replace(/^(explain|describe|define|write|discuss|analyze)/i, '') // Remove common starting words
-                .split(' ')
-                .filter(word => word.length > 3) // Only significant words
-                .slice(0, 2) // First 2 significant words
-                .join(' ')
-                .toLowerCase();
-              
-              if (significantWords.length > 5) {
-                foundItem = textItems.find(item => 
-                  item.str.toLowerCase().includes(significantWords) && 
-                  item.str.length > 10 &&
-                  item.x > 630 // In the question text area
-                );
-                console.log(`  -> Looking for significant words: "${significantWords}"`);
-              }
-            }
-            
-            // Strategy 3: Pattern-based search for VTU format
-            if (!foundItem) {
-              const questionStartPattern = new RegExp(`${subPart}\\s+${cleanedText.substring(0, 15)}`, 'i');
-              foundItem = textItems.find(item => questionStartPattern.test(item.str));
-            }
-            
-            if (foundItem) {
-              // Find the entire question area by looking for related text items
-              const questionItems = textItems.filter(item => 
-                Math.abs(item.y - foundItem!.y) < 30 && // Same line or nearby
-                item.x >= foundItem!.x - 20 && // Same horizontal area
-                item.pageNum === foundItem!.pageNum
-              );
-              
-              const minX = Math.min(...questionItems.map(item => item.x));
-              const maxX = Math.max(...questionItems.map(item => item.x + (item.width || 0)));
-              const minY = Math.min(...questionItems.map(item => item.y));
-              const maxY = Math.max(...questionItems.map(item => item.y + (item.height || 0)));
-              
-              position = {
-                x: minX,
-                y: minY,
-                width: Math.max(maxX - minX, 400), // Ensure minimum width
-                height: Math.max(maxY - minY, 80), // Ensure minimum height
-                pageNum: foundItem.pageNum
-              };
-              console.log(`  -> Found position for Q${qInfo.number}${subPart}: x=${position.x}, y=${position.y}, page=${position.pageNum}`);
-            } else {
-              console.log(`  -> No position found for Q${qInfo.number}${subPart}`);
-            }
-          }
-
-          const questionId = `q${qInfo.number}${subPart}`;
+        if (this.isValidQuestion(questionText, marks)) {
+          const cleanedText = this.cleanQuestionText(questionText);
           questions.push({
-            id: questionId,
+            id: `q${qNumber}${subPart}`,
             text: cleanedText,
             marks,
-            position,
-            alternatives: []
+            subPart
           });
-          
-          console.log(`  -> ✓ ACCEPTED: ${questionId} - ${cleanedText.substring(0, 60)}... (${marks} marks)`);
-        } else {
-          console.log(`  -> Skipped: Invalid length (${questionText?.length || 0})`);
+          console.log(`  Pass 1 (pattern ${patternIndex + 1}): Found Q${qNumber}${subPart} - "${cleanedText.substring(0, 40)}..."`);
         }
       }
     });
-
-    console.log(`Two-step extraction complete. Found ${questions.length} questions total.`);
+    
     return questions;
+  }
+
+  private static extractWithFlexiblePattern(qSection: string, qNumber: number): Array<{
+    id: string;
+    text: string;
+    marks: number;
+    subPart: string;
+  }> {
+    const questions: Array<{ id: string; text: string; marks: number; subPart: string }> = [];
+    
+    // Try different line splitting approaches
+    const lineSeparators = [/\n+/, /\s{3,}/, /\d+\s+[a-c]/gi];
+    
+    for (const separator of lineSeparators) {
+      const lines = qSection.split(separator).map(line => line.trim()).filter(line => line.length > 0);
+      
+      let currentSubPart = '';
+      let currentText = '';
+      let currentMarks = 8;
+      let foundQuestions = 0;
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        // More flexible sub-question marker patterns
+        const subPartMatches = [
+          line.match(/^([a-c])\s*[\.\)\s]\s*(.+)/i),
+          line.match(/\b([a-c])\s+(.+?)(?=\d+)/i),
+          line.match(/([a-c])\s*:\s*(.+)/i)
+        ];
+        
+        const subPartMatch = subPartMatches.find(match => match !== null);
+        
+        if (subPartMatch) {
+          // Save previous question if exists
+          if (currentText && currentSubPart) {
+            // Check if this sub-part is already captured
+            const existingQuestion = questions.find(q => q.subPart === currentSubPart);
+            if (!existingQuestion && this.isValidQuestion(currentText, currentMarks)) {
+              const cleanedText = this.cleanQuestionText(currentText);
+              questions.push({
+                id: `q${qNumber}${currentSubPart}`,
+                text: cleanedText,
+                marks: currentMarks,
+                subPart: currentSubPart
+              });
+              console.log(`  Pass 2: Found Q${qNumber}${currentSubPart} - "${cleanedText.substring(0, 40)}..."`);
+              foundQuestions++;
+            }
+          }
+          
+          // Start new question
+          currentSubPart = subPartMatch[1].toLowerCase();
+          currentText = subPartMatch[2];
+          
+          // Look for marks in this line or next few lines
+          const marksMatch = currentText.match(/(\d+)\s*(?:marks?)?$/i);
+          if (marksMatch) {
+            currentMarks = parseInt(marksMatch[1]);
+            currentText = currentText.replace(/\s*\d+\s*(?:marks?)?$/i, '').trim();
+          }
+          
+        } else if (currentText && !line.match(/^\d+$/) && !line.match(/^Q\d+/) && !line.match(/^[a-c]\s/)) {
+          // Continue current question - be more selective about what to include
+          const marksMatch = line.match(/(\d+)\s*(?:marks?)?$/i);
+          if (marksMatch) {
+            currentMarks = parseInt(marksMatch[1]);
+            const textPart = line.replace(/\s*\d+\s*(?:marks?)?$/i, '').trim();
+            if (textPart && textPart.length > 5) {
+              currentText += ' ' + textPart;
+            }
+          } else if (line.length > 5 && /[a-zA-Z]/.test(line)) {
+            currentText += ' ' + line;
+          }
+        }
+      }
+      
+      // Don't forget the last question
+      if (currentText && currentSubPart) {
+        const existingQuestion = questions.find(q => q.subPart === currentSubPart);
+        if (!existingQuestion && this.isValidQuestion(currentText, currentMarks)) {
+          const cleanedText = this.cleanQuestionText(currentText);
+          questions.push({
+            id: `q${qNumber}${currentSubPart}`,
+            text: cleanedText,
+            marks: currentMarks,
+            subPart: currentSubPart
+          });
+          console.log(`  Pass 2: Found Q${qNumber}${currentSubPart} - "${cleanedText.substring(0, 40)}..."`);
+          foundQuestions++;
+        }
+      }
+      
+      // If this separator approach found questions, use it
+      if (foundQuestions > 0) {
+        console.log(`  Pass 2: Using separator approach that found ${foundQuestions} questions`);
+        break;
+      }
+    }
+    
+    return questions;
+  }
+
+  private static countExpectedSubQuestions(qSection: string): number {
+    // Count occurrences of a, b, c as sub-question markers
+    const aCount = (qSection.match(/\b[a\.][\s\)]/gi) || []).length;
+    const bCount = (qSection.match(/\b[b\.][\s\)]/gi) || []).length;
+    const cCount = (qSection.match(/\b[c\.][\s\)]/gi) || []).length;
+    
+    console.log(`  Raw counts: a=${aCount}, b=${bCount}, c=${cCount}`);
+    
+    // Return the maximum reasonable count (usually 3 for VTU questions)
+    const maxCount = Math.max(aCount, bCount, cCount);
+    return Math.min(maxCount, 3); // Cap at 3 sub-questions
+  }
+
+  private static ensureSequentialSubParts(questions: Array<{
+    id: string;
+    text: string;
+    marks: number;
+    subPart: string;
+  }>, qNumber: number, expectedCount: number): Array<{
+    id: string;
+    text: string;
+    marks: number;
+    subPart: string;
+  }> {
+    if (questions.length === 0) return questions;
+    
+    // Sort by sub-part to ensure proper order
+    questions.sort((a, b) => a.subPart.localeCompare(b.subPart));
+    
+    // Fix sequential sub-parts based on expected count
+    const expectedSubParts = ['a', 'b', 'c'].slice(0, expectedCount);
+    const correctedQuestions: Array<{ id: string; text: string; marks: number; subPart: string }> = [];
+    
+    questions.forEach((question, index) => {
+      if (index < expectedSubParts.length) {
+        const correctSubPart = expectedSubParts[index];
+        const correctedQuestion = {
+          ...question,
+          subPart: correctSubPart,
+          id: `q${qNumber}${correctSubPart}`
+        };
+        correctedQuestions.push(correctedQuestion);
+        
+        if (question.subPart !== correctSubPart) {
+          console.log(`  Pass 3: Corrected Q${qNumber}${question.subPart} → Q${qNumber}${correctSubPart}`);
+        }
+      }
+    });
+    
+    // If we still don't have enough questions, log a warning
+    if (correctedQuestions.length < expectedCount) {
+      console.warn(`  ⚠️  Q${qNumber}: Only found ${correctedQuestions.length} questions, expected ${expectedCount}`);
+    }
+    
+    return correctedQuestions;
+  }
+
+  private static isValidQuestion(questionText: string | undefined, marks: number): boolean {
+    if (!questionText) return false;
+    
+    // Check marks range
+    if (marks > 10 || marks < 2) return false;
+    
+    // Check text length
+    if (questionText.length < 20 || questionText.length > 500) return false;
+    
+    // Check for alphabetic content
+    if (!/[a-zA-Z]/.test(questionText)) return false;
+    
+    // Skip formatting-only text
+    if (/^\d+$/.test(questionText.trim()) || /^[a-cA-C]$/.test(questionText.trim())) return false;
+    
+    return true;
+  }
+
+  private static cleanQuestionText(questionText: string): string {
+    return questionText
+      .replace(/\s+/g, ' ')
+      .replace(/^\s*[a-cA-C][\.\)\s]\s*/, '') // Remove leading sub-part markers
+      .replace(/\n+/g, ' ')
+      .trim();
+  }
+
+  private static findQSectionEnd(text: string, currentQStart: number, nextQStart: number, currentQNumber: number): number {
+    // Look for the last complete sub-question (c) in this Q section
+    const qSection = text.substring(currentQStart, nextQStart);
+    
+    // Find all occurrences of sub-question parts in this section
+    const subPartMatches = [];
+    const patterns = [
+      /\bc\s+.*?(\d+)(?:\s|$)/gi,  // c followed by text and marks
+      /\bc\s+.*?$/gmi,             // c followed by text to end of line
+      /\bc[\.\)\s]/gi              // just the c marker
+    ];
+    
+    patterns.forEach(pattern => {
+      let match;
+      pattern.lastIndex = 0;
+      while ((match = pattern.exec(qSection)) !== null) {
+        subPartMatches.push({
+          type: 'c',
+          start: currentQStart + match.index,
+          end: currentQStart + match.index + match[0].length,
+          text: match[0]
+        });
+      }
+    });
+    
+    if (subPartMatches.length > 0) {
+      // Find the last 'c' sub-question and extend the boundary to include it
+      const lastCMatch = subPartMatches[subPartMatches.length - 1];
+      
+      // Look for marks or content after this 'c' that belongs to this Q
+      const afterCText = text.substring(lastCMatch.end, nextQStart);
+      const marksMatch = afterCText.match(/.*?(\d+)(?:\s|$)/);
+      
+      if (marksMatch) {
+        const endPos = lastCMatch.end + marksMatch.index + marksMatch[0].length;
+        console.log(`  Extended Q${currentQNumber} boundary to include 'c' sub-question (pos ${endPos})`);
+        return endPos;
+      } else {
+        // Extend by a reasonable amount to capture the full 'c' question
+        const endPos = Math.min(lastCMatch.end + 100, nextQStart - 10);
+        console.log(`  Extended Q${currentQNumber} boundary by default amount (pos ${endPos})`);
+        return endPos;
+      }
+    }
+    
+    // If no 'c' found, use the original boundary
+    return nextQStart;
   }
 
   static generateSimilarQuestions(originalQuestion: string): string[] {

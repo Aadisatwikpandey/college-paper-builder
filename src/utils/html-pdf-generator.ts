@@ -109,63 +109,80 @@ export class HTMLPdfGenerator {
         body {
             font-family: 'Times New Roman', serif;
             margin: 0;
-            padding: 20px;
-            font-size: 12px;
-            line-height: 1.4;
+            padding: 15px;
+            font-size: 11px;
+            line-height: 1.3;
             color: black;
-        }
-        
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-            border-bottom: 2px solid black;
-            padding-bottom: 15px;
+            background: white;
         }
         
         .course-code {
             position: absolute;
-            top: 20px;
+            top: 15px;
             right: 20px;
             font-weight: bold;
-            font-size: 14px;
+            font-size: 12px;
+            border: 1px solid black;
+            padding: 3px 8px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
         }
         
         .university {
             font-weight: bold;
-            font-size: 16px;
-            margin-bottom: 5px;
+            font-size: 14px;
+            margin-bottom: 3px;
+            text-transform: uppercase;
         }
         
         .course-info {
             font-weight: bold;
-            font-size: 14px;
-            margin-bottom: 20px;
+            font-size: 12px;
+            margin-bottom: 15px;
         }
         
         .usn-section {
-            margin: 20px 0;
-            text-align: center;
+            margin: 15px 0;
+            text-align: left;
+            font-weight: bold;
+        }
+        
+        .usn-label {
+            display: inline-block;
+            margin-right: 20px;
+            font-size: 12px;
+            font-weight: bold;
         }
         
         .usn-boxes {
             display: inline-block;
-            margin-top: 10px;
+            margin-left: 10px;
         }
         
         .usn-box {
             display: inline-block;
-            width: 25px;
-            height: 25px;
+            width: 20px;
+            height: 20px;
             border: 1px solid black;
-            margin: 0 2px;
+            margin: 0 1px;
             vertical-align: middle;
+            background: white;
         }
         
-        .subject-info {
+        .subject-section {
             text-align: center;
             margin: 20px 0;
+            padding: 10px 0;
+        }
+        
+        .subject-name {
             font-weight: bold;
-            font-size: 14px;
+            font-size: 13px;
+            margin-bottom: 10px;
         }
         
         .exam-details {
@@ -173,72 +190,88 @@ export class HTMLPdfGenerator {
             justify-content: space-between;
             margin: 15px 0;
             font-weight: bold;
+            font-size: 11px;
         }
         
         .instructions {
-            margin: 20px 0;
+            margin: 15px 0;
             font-weight: bold;
             text-align: center;
+            font-size: 11px;
         }
         
         .questions-table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 20px;
+            margin-top: 15px;
+            font-size: 11px;
         }
         
         .questions-table th,
         .questions-table td {
             border: 1px solid black;
-            padding: 8px;
+            padding: 6px 8px;
             vertical-align: top;
             text-align: left;
         }
         
         .questions-table th {
-            background-color: #f5f5f5;
+            background-color: white;
             font-weight: bold;
             text-align: center;
+            font-size: 11px;
+            padding: 8px;
         }
         
         .qno-col {
-            width: 60px;
+            width: 50px;
             text-align: center;
             font-weight: bold;
+            vertical-align: middle;
+            font-size: 11px;
         }
         
         .question-col {
             width: auto;
+            padding: 6px 12px;
         }
         
         .marks-col {
-            width: 60px;
+            width: 50px;
             text-align: center;
             font-weight: bold;
+            vertical-align: middle;
+            font-size: 11px;
         }
         
         .module-header {
-            background-color: #f0f0f0;
+            background-color: white;
             font-weight: bold;
             text-align: center;
-            font-size: 13px;
+            font-size: 11px;
+            padding: 6px;
         }
         
         .sub-question {
             font-weight: bold;
             display: inline-block;
-            width: 20px;
+            width: 15px;
+            margin-right: 8px;
+            font-size: 11px;
         }
         
         .question-text {
             display: inline;
-            margin-left: 5px;
+            font-size: 11px;
+            line-height: 1.4;
         }
         
         .or-row {
             text-align: center;
             font-weight: bold;
-            background-color: #f9f9f9;
+            background-color: white;
+            font-size: 11px;
+            padding: 4px;
         }
         
         .page-break {
@@ -246,11 +279,12 @@ export class HTMLPdfGenerator {
         }
         
         .question-row {
-            min-height: 40px;
+            min-height: 35px;
         }
         
         .question-content {
-            padding: 5px 0;
+            padding: 2px 0;
+            line-height: 1.4;
         }
     </style>
 </head>
@@ -263,14 +297,14 @@ export class HTMLPdfGenerator {
     </div>
     
     <div class="usn-section">
-        <strong>USN:</strong>
+        <span class="usn-label">USN:</span>
         <div class="usn-boxes">
             ${Array(10).fill(0).map(() => '<div class="usn-box"></div>').join('')}
         </div>
     </div>
     
-    <div class="subject-info">
-        ${vtuPaper.header.subject}
+    <div class="subject-section">
+        <div class="subject-name">${vtuPaper.header.subject}</div>
     </div>
     
     <div class="exam-details">
